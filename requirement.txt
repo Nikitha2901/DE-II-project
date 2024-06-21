@@ -1,0 +1,38 @@
+#cloud-config
+# This script uses cloud-init to configure a new Ubuntu server instance.
+# It will perform an apt-get update and an apt-get upgrade upon launch, then install necessary packages.
+
+package_update: true
+package_upgrade: true
+
+runcmd:
+  # Display initial message
+  - echo "Initial update and installation all necessary packages"
+
+  # Add repositories and update system,ansible installation, openstack installation
+  - add-apt-repository -y cloud-archive:antelope
+  - apt-add-repository -y ppa:ansible/ansible
+  - apt-get update
+  
+  # Install packages to set up openstack environment
+  - apt-get install -y python3-openstackclient python3-novaclient python3-keystoneclient ansible
+
+  # Install Snap packages
+  - snap install openstackclients
+
+  # Final update and upgrade after all installations
+  - apt-get upgrade -y
+
+  #SSH key generation steps, if doing manually asked passphrase, please skip. provide path as similar to below
+  - mkdir -p /home/ubuntu/cluster-keys
+  - ssh-keygen -t rsa -b 4096 -f /home/ubuntu/cluster-keys/RSA-key -N ""
+  - chown -R ubuntu:ubuntu /home/ubuntu/cluster-keys
+  - chmod 700 /home/ubuntu/cluster-keys
+  - chmod 600 /home/ubuntu/cluster-keys/RSA-key
+  - chmod 644 /home/ubuntu/cluster-keys/RSA-key.pub
+ 
+  #cloning git repo
+  - cd /home/ubuntu
+  - git clone https://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@github.com/vaughankraska/de_2_project.git
+
+
