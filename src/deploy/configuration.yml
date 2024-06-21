@@ -1,0 +1,262 @@
+- hosts: all
+  
+  tasks:
+   
+   - name: Generate hosts file
+     become: true
+     lineinfile: dest=/etc/hosts
+                 regexp='.*{{ item }}$'
+                 line="{{ hostvars[item].ansible_default_ipv4.address }} {{item}}"
+                 state=present            
+     when: hostvars[item].ansible_default_ipv4.address is defined
+     with_items: "{{groups['all']}}"
+     
+   #- name: Set hostname
+   #  hostname: name="{{inventory_hostname}}"
+   #  become: true
+
+   - name: apt update
+     become: true
+     apt: update_cache=yes upgrade=dist
+
+   - name: Download git repository
+     become: true
+     git:
+      repo: 'https://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@github.com/vaughankraska/de_2_project.git'
+      dest: '/home/appuser/de_2_project/' 
+      clone: yes
+      force: yes
+      accept_hostkey: yes
+
+      
+   - name: Change ownership of a directory
+     become: true
+     file:
+      path: /technical-training
+      state: directory
+      recurse: yes
+      owner: appuser
+      group: appuser
+
+- hosts: devserver
+  
+  vars_files:
+   - setup_var.yml
+
+  tasks: 
+    - name: Extra packages
+      become: true
+      apt: pkg={{item}} state=latest update_cache=true
+      with_items:
+      - apt-transport-https
+      - ca-certificates
+      - curl
+      - software-properties-common
+
+    - name: apt update
+      become: true
+      apt: update_cache=yes upgrade=dist
+
+    - name: Add Docker repository key
+      become: true
+      apt_key:
+         url: https://download.docker.com/linux/ubuntu/gpg
+         state: present
+
+    - name: Add Docker repository
+      become: true
+      command: add-apt-repository -y "deb [arch=amd64] https://download.docker.com/linux/ubuntu focal stable" 
+   
+    - name: apt update
+      become: true
+      apt: update_cache=yes upgrade=dist
+
+   # Workaround pip issue with MTU mismatch, see: https://github.com/docker/docker.github.io/pull/9249/files
+   # MTU for SNIC is 1450, Docker default is 1500. Override so that Docker matches the host.
+   # We create the config file before installing, to avoid any need to restart the docker daemon.
+    - name: Create Ansible docker config directory.
+      become: true
+      file:
+         path: "/etc/docker"
+         state: directory
+
+    - name: Create Ansible docker file to configure Docker MTU to match SNIC for pip issue
+      become: true
+      copy:
+        dest: "/etc/docker/daemon.json"
+        content: |
+         {
+           "mtu": 1450
+         } 
+
+    - name: Install Docker
+      become: true
+      apt: pkg=docker-ce state=present update_cache=true allow_unauthenticated=yes
+
+    - name: Running containers
+      become: true
+      shell: docker compose up -d
+      args:
+         chdir: "/home/appuser/de_2_project/src/dev/"
+
+    # Git deployment repo configuration
+    - name: Create git deployment directory
+      become: true
+      ansible.builtin.file:
+        path: "/home/appuser/de_2_project/src/dev/publish"
+        state: directory
+        owner: appuser
+        group: appuser
+
+    - name: Initialize git deployment repo
+      command: "git init"
+      args:
+        chdir: "/home/appuser/de_2_project/src/dev/publish"
+
+    - name: Retrieve production server IP
+      set_fact:
+        prodip: "{{ hostvars['prodserver']['ansible_default_ipv4']['address'] }}"
+    
+    - name: Setup git production remote
+      command: "git remote add production appuser@{{ prodip }}:/home/appuser/de_2_project/src/prod/publish"
+      args:
+        chdir: "/home/appuser/de_2_project/src/dev/publish"
+
+    # SSH communication dev-prod setup
+    - name: Verify that .ssh directory exsits
+      become: true
+      file:
+        path: "/home/appuser/.ssh"
+        state: directory
+        owner: appuser
+        group: appuser
+        mode: '0700'
+
+    - name: Generate SSH key pair
+      become: true
+      openssh_keypair:
+        path: "/home/appuser/.ssh/id_rsa"
+        type: rsa
+        owner: appuser
+        group: appuser
+        mode: '0600'
+      register: ssh_keypair
+
+    - name: Fetch public key to deploy server
+      fetch:
+        src: "/home/appuser/.ssh/id_rsa.pub"
+        dest: "/tmp/id_rsa.pub"
+        flat: yes
+
+- hosts: prodserver
+
+  vars_files:
+   - setup_var.yml
+
+  tasks:
+   - name: Extra packages
+     become: true
+     apt: pkg={{item}} state=latest update_cache=true
+     with_items:
+      - apt-transport-https
+      - ca-certificates
+      - curl
+      - software-properties-common
+
+   - name: apt update
+     become: true
+     apt: update_cache=yes upgrade=dist
+
+   - name: Add Docker repository key
+     become: true
+     apt_key:
+      url: https://download.docker.com/linux/ubuntu/gpg
+      state: present
+
+   - name: Add Docker repository
+     become: true
+     command: add-apt-repository -y "deb [arch=amd64] https://download.docker.com/linux/ubuntu focal stable"
+
+   - name: apt update
+     become: true
+     apt: update_cache=yes upgrade=dist
+
+   # Workaround pip issue with MTU mismatch, see: https://github.com/docker/docker.github.io/pull/9249/files
+   # MTU for SNIC is 1450, Docker default is 1500. Override so that Docker matches the host.
+   # We create the config file before installing, to avoid any need to restart the docker daemon.
+   - name: Create Ansible docker config directory.
+     become: true
+     file:
+       path: "/etc/docker"
+       state: directory
+
+   - name: Create Ansible docker file to configure Docker MTU to match SNIC for pip issue
+     become: true
+     copy:
+       dest: "/etc/docker/daemon.json"
+       content: |
+        {
+          "mtu": 1450
+        }
+
+   - name: Install Docker
+     become: true
+     apt: pkg=docker-ce state=present update_cache=true allow_unauthenticated=yes
+
+   - name: Running containers
+     become: true
+     shell: docker compose up -d
+     args:
+       chdir: "/home/appuser/de_2_project/src/prod/"
+
+   # Git deployment repo configuration
+   - name: Create git deployment directory
+     become: true
+     ansible.builtin.file:
+       path: "/home/appuser/de_2_project/src/prod/publish"
+       state: directory
+       owner: appuser
+       group: appuser
+
+   - name: Initialize bare git deployment jump repo
+     command: "git init --bare"
+     args:
+       chdir: "/home/appuser/de_2_project/src/prod/publish"
+
+   - name: Create git post-receive hook for deployment repo
+     become: true
+     copy:
+       dest: "/home/appuser/de_2_project/src/prod/publish/hooks/post-receive"
+       mode: '0755'
+       owner: appuser
+       group: appuser
+       content: |
+          #!/bin/bash
+          while read oldrev newrev ref
+          do
+              if [[ $ref =~ .*/master$ ]];
+              then
+                  echo "Master ref received. Deploying master branch to production..."
+                  sudo git --work-tree=/home/appuser/de_2_project/src/prod --git-dir=/home/appuser/de_2_project/src/prod/publish checkout -f
+              else
+                  echo "Ref $ref successfully received. Doing nothing: only the master branch may be deployed on this server."
+              fi
+          done
+
+   # SSH communication dev-prod setup
+   - name: Verify that the .ssh directory exists
+     become: true
+     file:
+       path: "/home/appuser/.ssh"
+       state: directory
+       owner: appuser
+       group: appuser
+       mode: '0700'
+
+   - name: Add public key to authorized_keys
+     become: true
+     authorized_key:
+       user: appuser
+       state: present
+       key: "{{ lookup('file', '/tmp/id_rsa.pub') }}"
+       manage_dir: true

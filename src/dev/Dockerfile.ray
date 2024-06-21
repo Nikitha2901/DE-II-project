@@ -1,0 +1,15 @@
+# syntax=docker/dockerfile:1
+
+FROM rayproject/ray:2.22.0
+
+WORKDIR /app
+
+COPY . .
+RUN pip install --no-cache-dir -r requirements.txt
+RUN mkdir -p /app/shared; chown ray /app/shared
+
+# What the container should run when it is started.
+CMD ["ray","start", "--temp-dir=/tmp/test_tmp", "--head", "--port=6379", "--dashboard-host=0.0.0.0 --block"]
+
+# Training results stored in docker volume at
+# /var/lib/docker/volumes/dev_shared/_data/

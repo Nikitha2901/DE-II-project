@@ -1,0 +1,47 @@
+# Comments are provided throughout this file to help you get started.
+# If you need more help, visit the Docker Compose reference guide at
+# https://docs.docker.com/go/compose-spec-reference/
+
+# For more examples, see the Awesome Compose repository:
+# https://github.com/docker/awesome-compose
+services:
+  server:
+    build:
+      context: .
+      network: host
+    restart: always
+    ports:
+      - 5100:5100
+    depends_on:
+      - rabbit
+    develop:
+      watch:
+        - action: sync
+          path: .
+          target: /app
+        - action: rebuild
+          path: requirements.txt
+  rabbit:
+    hostname: rabbit
+    image: rabbitmq:management
+    environment:
+      - RABBITMQ_DEFAULT_USER=rabbitmq
+      - RABBITMQ_DEFAULT_PASS=rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+  worker:
+    hostname: worker
+    build:
+      context: .
+      network: host
+    entrypoint: celery
+    command: -A workerA worker --loglevel=debug
+    links:
+      - rabbit
+    depends_on:
+      - rabbit
+    develop:
+      watch:
+        - action: rebuild
+          path: workerA.py

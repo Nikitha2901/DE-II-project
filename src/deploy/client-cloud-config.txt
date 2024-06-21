@@ -1,0 +1,14 @@
+#cloud-config
+
+# This script uses cloud-init to configure a new Ubuntu server instance
+# It will perform an apt-get update and an apt-get upgrade upon launch
+
+package_update: true
+package_upgrade: true
+
+runcmd:
+  # The commands in this block will run at the first boot
+  - echo "Initial update and upgrade of the server packages"
+  - apt-get update && apt-get upgrade -y
+  # Any additional commands can be added here
+

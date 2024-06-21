@@ -1,0 +1,64 @@
+services:
+  jupyter:
+    build:
+      context: .
+      dockerfile: Dockerfile.jupyter
+    restart: always
+    ports:
+      - 8888:8888
+    develop:
+      watch:
+        - action: sync
+          path: .
+          target: /app
+
+  ray-head:
+    build:
+      context: .
+      dockerfile: Dockerfile.ray
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: "2G"
+    ports:
+      - 6379:6379
+      - 8265:8265
+    environment:
+      - RAY_ADDRESS=auto
+    shm_size: "2G"
+    networks:
+      - ray_network
+    volumes:
+      - shared:/app/shared
+    develop:
+      watch:
+        - action: sync
+          path: ./train.py
+          target: /app/train.py
+    command: ray start --temp-dir="/tmp/test_tmp" --head --port=6379 --dashboard-host=0.0.0.0 --block
+
+  ray-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.ray
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: "2G"
+    depends_on:
+      - ray-head
+    shm_size: "2G"
+    networks:
+      - ray_network
+    volumes:
+      - shared:/app/shared
+    command: ray start --address=ray-head:6379 --block
+
+networks:
+  ray_network:
+    driver: bridge
+
+volumes:
+  shared:
